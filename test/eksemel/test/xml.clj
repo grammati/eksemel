@@ -28,7 +28,7 @@
 (deftest parse-sources
   (testing "parse works with a file, URL, string, etc..."
     (doseq [source ["./test/resources/sample-1.xml"
-                    "https://raw.github.com/grammati/eksemel/master/test/resource/sample-1.xml"
+                    "https://raw.github.com/grammati/eksemel/master/test/resources/sample-1.xml"
                     (-> "<foo/>" java.io.StringReader.)
                     (-> "<foo/>" java.io.StringReader. org.xml.sax.InputSource.)
                     (-> "<foo/>" (.getBytes (java.nio.charset.Charset/forName "utf-8")))
@@ -39,9 +39,12 @@
                     "<foo/>"]]
       (let [parsed (xml/parse source)]
         (is (= 1 (count parsed)))
-        (is (xml/element? (first parsed)))
-        (is (= :foo (xml/tag (first parsed))))
-        (is (nil? (xml/uri (first parsed))))
+        (let [elt (first parsed)]
+          (is (xml/element? elt))
+          (is (= :foo (xml/tag elt)))
+          (is (nil? (xml/uri elt)))
+          (is (empty? (xml/attrs elt)))
+          (is (empty? (xml/content elt))))
         ))))
 
 (def xml-1 "<a><b/></a>")

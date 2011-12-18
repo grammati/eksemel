@@ -152,7 +152,8 @@
                               evt))
         f (if line-numbers
             #(f (with-line-numbers %))
-            f)]
+            f)
+        nil-if-empty (fn [^String s] (if (pos? (.length s)) s))]
     
     (proxy [DefaultHandler2] []
 
@@ -162,9 +163,9 @@
       
       ;; Elements
       (startElement [uri local-name q-name attrs]
-        (f [:start-element uri local-name q-name (attrs->map attrs xmlns-aware)]))
+        (f [:start-element (nil-if-empty uri) local-name q-name (attrs->map attrs xmlns-aware)]))
       (endElement [uri local-name q-name]
-        (f [:end-element uri local-name q-name]))
+        (f [:end-element (nil-if-empty uri) local-name q-name]))
 
       ;; Text
       (characters [^chars ch ^long start ^long length]
