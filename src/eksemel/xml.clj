@@ -58,6 +58,9 @@
   [e]
   (instance? Element e))
 
+(defn comment? [c] (instance? Comment c))
+(defn processing-instruction? [pi] (instance? PI pi))
+(defn cdata? [cd] (instance? CData cd))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

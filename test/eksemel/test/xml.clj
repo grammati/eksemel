@@ -47,12 +47,121 @@
           (is (empty? (xml/content elt))))
         ))))
 
-(def xml-1 "<a><b/></a>")
-(def xml-2 "<a a1='v1'><b a2='v2'/></a>")
+(deftest parse-with-old-defaults
+  (let [path "./test/resources/kitchen-sink-1.xml"]
+    (testing "Clojure.xml-style parsing options (no namespaces, comments, etc.)"
+      (let [nodes (xml/parse path xml/old-parse-options)]
+        
+        (testing "There is a single root"
+          (is (= 1 (count nodes))))
+        
+        (let [root (first nodes)]
+          
+          (testing "The root is an Element"
+            (is (xml/element? root)))
+          
+          (testing "Comments and processing-instructions are discarded"
+            (is (every? #(or (xml/element? %) (string? %)) (xml/content root))))
+          
+          (let [elts (filter xml/element? (xml/content root))
+                text (filter string? (xml/content root))]
+            
+            (testing "Whitespace-only text nodes are discarded"
+              (is (not-any? string/blank? text)))
 
-(defn round-trip [xml]
-  (xml/emit (xml/parse xml)))
+            (testing "CDATA is treated as a regular text node"
+              (is (= "hello cdata! <markup> allowed here &\"'><" (string/trim (first text)))))
 
-(deftest parse-no-namespaces
-  (is (= xml-1 (round-trip xml-1)))
-  (is (= xml-2 (round-trip xml-2))))
+            (testing "Whitespace is kept (not trimmed) in text nodes"
+              (is (= "\n  Hello XML\n  " (second text))))
+            
+            (testing  "xmlns-awareness is turned off"
+              (testing "elements have a nil uri"
+                (is (nil? (xml/uri root)))
+                (is (every? nil? (map xml/uri elts))))
+              (testing "xml namespace declarations are treated as normal attributes"
+                (is (= 2 (count (xml/attrs root))))
+                (is (= "xmlns-default" (get-in root [:attrs :xmlns])))
+                (is (= "xmlns-a" (get-in root [:attrs :xmlns:a]))))
+              (testing "undeclared prefixes are allowed"
+                (let [elt (first elts)]
+                  (is (= :undeclared:foo (xml/tag elt)))
+                  (is (= [:junk:attr "xxx"] (first (xml/attrs elt))))))
+              (testing "declared prefixes are allowed"
+                (is (= :a:foo (xml/tag (second elts)))))
+              
+              )))))))
+
+
+(deftest parse-with-new-defaults
+  (let [path "./test/resources/kitchen-sink-2.xml"]
+    (testing "New-style parsing options (namespaces, comments, etc.)"
+      (let [nodes (xml/parse path)]
+        
+        (testing "There are multiple roots"
+          (is (= 5 (count nodes))))
+
+        (testing "Comments and processing instructions can be before or after the root Element"
+          (is (xml/comment? (nth nodes 0)))
+          (is (xml/processing-instruction? (nth nodes 1)))
+          (is (xml/comment? (nth nodes 3)))
+          (is (xml/processing-instruction? (nth nodes 4))))
+
+        (testing "Comment text is retained"
+          (is (= " Comment before root " (:text (nth nodes 0))))
+          (is (= " Comment after root " (:text (nth nodes 3)))))
+
+        (testing "Processing instructions are kept"
+          (is (= "test" (:target (nth nodes 1))))
+          (is (= "Processing Instruction before root " (:text (nth nodes 1))))
+          (is (= "test" (:target (nth nodes 4))))
+          (is (= "Processing Instruction after root " (:text (nth nodes 4))))
+          )
+        
+        (let [root (nth nodes 2)]
+          
+          (testing "The root element is an Element"
+            (is (xml/element? root)))
+          
+          (let [children (xml/content root)
+                elts (filter xml/element? children)
+                text (filter string? children)]
+
+            (testing "Comments inside an element are kept"
+              (let [c (nth children 0)]
+                (is (xml/comment? c))
+                (is (= " Comment child of root " (:text c)))))
+
+            (testing "Processing instructions inside an element are kept"
+              (let [pi (nth children 1)]
+                (is (xml/processing-instruction? pi))
+                (is (= "foobar" (:target pi)))
+                (is (= "Processing Instruction child of root " (:text pi)))))
+            
+            (testing "Whitespace-only text nodes are discarded"
+              (is (not-any? string/blank? text)))
+
+            (testing "CDATA is stored in a CData instance"
+              (let [cd (nth children 2)]
+                (is (xml/cdata? cd))
+                (is (= "hello cdata! <markup> allowed here &\"'><" (:text cd)))))
+
+            (testing "Whitespace is kept (not trimmed) in text nodes"
+              (is (= "\n  Hello XML\n  " (first text))))
+            
+            (testing  "xmlns-awareness is turned on"
+              (testing "elements have a uri"
+                (is (= "xmlns-default" (xml/uri root)))
+                (is (not-any? nil? (map xml/uri elts))))
+              (testing "xml namespace declarations are not stored as attributes"
+                (is (empty? (xml/attrs root))))
+              (let [e (first elts)]
+                (testing "prefixes are resolved to uris"
+                  (is (= :foo (xml/tag e)))
+                  (is (= "xmlns-a" (xml/uri e))))
+                (testing "the original prefix is retained"
+                  (is (= "a" (-> e meta :prefix))))
+                (testing "the prefix-to-namespace mappings are retained"
+                  (is (= {"" "xmlns-default" "a" "xmlns-a"} (-> e meta :xmlns)))))
+              
+              )))))))
