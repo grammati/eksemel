@@ -1,9 +1,10 @@
 (ns eksemel.test.xml
-  (:require [eksemel
-             [xml :as xml]]
-            [clojure
-             [string :as string]])
-  (:use [clojure.test]))
+  (:require (eksemel
+             [xml :as xml])
+            (clojure
+             [string :as string]))
+  (:use clojure.test)
+  (:import (org.xml.sax SAXParseException)))
 
 
 (defn xml-str=
@@ -44,8 +45,7 @@
           (is (= :foo (xml/tag elt)))
           (is (nil? (xml/uri elt)))
           (is (empty? (xml/attrs elt)))
-          (is (empty? (xml/content elt))))
-        ))))
+          (is (empty? (xml/content elt))))))))
 
 (deftest parse-with-old-defaults
   (let [path "./test/resources/kitchen-sink-1.xml"]
@@ -89,8 +89,12 @@
                   (is (= [:junk:attr "xxx"] (first (xml/attrs elt))))))
               (testing "declared prefixes are allowed"
                 (is (= :a:foo (xml/tag (second elts)))))
-              
-              )))))))
+              (testing "attributes are always keywords"
+                (let [e (nth elts 2)
+                      a (xml/attrs e)]
+                  (is (= 2 (count a)))
+                  (is (= "value-1" (:attr-1 a)))
+                  (is (= "value-2" (:a:attr-2 a))))))))))))
 
 
 (deftest parse-with-new-defaults
@@ -115,8 +119,7 @@
           (is (= "test" (:target (nth nodes 1))))
           (is (= "Processing Instruction before root " (:text (nth nodes 1))))
           (is (= "test" (:target (nth nodes 4))))
-          (is (= "Processing Instruction after root " (:text (nth nodes 4))))
-          )
+          (is (= "Processing Instruction after root " (:text (nth nodes 4)))))
         
         (let [root (nth nodes 2)]
           
@@ -163,5 +166,35 @@
                   (is (= "a" (-> e meta :prefix))))
                 (testing "the prefix-to-namespace mappings are retained"
                   (is (= {"" "xmlns-default" "a" "xmlns-a"} (-> e meta :xmlns)))))
-              
-              )))))))
+              (let [e (second elts)
+                    a (xml/attrs e)]
+                (testing "namespaced attributes"
+                  (is (= 2 (count a)))
+                  (is (= "value-1" (:attr-1 a)))
+                  (is (= "value-2" (get a [:attr-2 "xmlns-a"])))
+                  (testing "original prefix is retained"
+                    (is (= "a" (->> a keys (remove keyword?) first meta :prefix)))))))))))))
+
+(deftest parsing-miscellany
+  (testing "Multiple prefixes for same namespace"
+    (let [xml "<foo xmlns:a='my-ns' xmlns:b='my-ns'><a:bar/><b:bar/></foo>"
+          root (first (xml/parse xml))
+          [c1 c2] (xml/content root)]
+      (is (= {:xmlns {"a" "my-ns" "b" "my-ns"}} (meta root)))
+      ;; Important: elements are equal, even though textually
+      ;; different in the original XML.
+      (is (= c1 c2))
+      ;; But the original prefixes are retained
+      (is (= "a" (-> c1 meta :prefix)))
+      (is (= "b" (-> c2 meta :prefix)))
+      )
+    (let [xml "<foo xmlns:a='my-ns' xmlns:b='my-ns'><bar a:attr='value-1' b:attr='value-2'/></foo>"]
+      ;; This XML is illegal with namespace-aware parsing on, because
+      ;; the "same" attribute (semantically) appears twice.
+      ;; Note: this should test for SAXParseException, but it's
+      ;; actually wrapped in a RuntimeException. Oh well.
+      (is (thrown? RuntimeException (xml/parse xml)))
+      ;; With xmlns-awareness off, it's fine.
+      (let [root (first (xml/parse xml {:xmlns-aware false}))
+            a (-> root xml/content first xml/attrs)]
+        (is (= 2 (count a)))))))
