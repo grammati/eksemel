@@ -1,0 +1,15 @@
+<!-- Comment before root -->
+<?test Processing Instruction before root ?>
+<root xmlns='xmlns-default' xmlns:a="xmlns-a">
+  <!-- Comment child of root -->
+  <?foobar Processing Instruction child of root ?>
+  <![CDATA[hello cdata! <markup> allowed here &"'><]]>
+  
+  <undeclared:foo junk:attr='xxx'/>
+  Hello XML
+  <a:foo/>
+  <foo attr-1='value-1' a:attr-2='value-2'/>
+  <foo> <bar/> </foo>
+</root>
+<!-- Comment after root -->
+<?test Processing Instruction after root ?>
