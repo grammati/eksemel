@@ -94,11 +94,11 @@
 (defn append-content [elt & children]
   (update-in elt [:content] concat children))
 
-(defn flatten-element [elt]
+(defn flatten-node [elt]
   (tree-seq element? content elt))
 
-(defn flatten-elements [elts]
-  (mapcat flatten-element elts))
+(defn flatten-nodes [elts]
+  (mapcat flatten-node elts))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Parsing XML
@@ -292,6 +292,16 @@
                  (string/blank? s)))
           events))
 
+(defn normalize-text
+  ""
+  [events option]
+  (if (= option :keep)
+    events ; fast-path
+    (let [option (if (nil? option) :skip-blank option)
+          f (case option
+              :skip-blank #(if-not (string/blank? %) %)
+              :trim  string/trim)])))
+
 (defn ignore
   "Filters out events of the given types."
   [events & event-types]
@@ -403,7 +413,7 @@
 ;; New default parse options.
 (def default-parse-options
   {:xmlns-aware             true
-   :keep-whitespace         false
+   :whitespace              :skip-blank
    :comments                true
    :cdata                   true
    :processing-instructions true
@@ -413,7 +423,7 @@
 ;; For backward-compatibility. Options for parsing clojure.xml-style.
 (def old-parse-options
   {:xmlns-aware             false
-   :keep-whitespace         false
+   :whitespace              :skip-blank
    :comments                false
    :cdata                   false
    :processing-instructions false
@@ -432,9 +442,17 @@
    The opts parameter is an optional map of options. The defaults for
    all options are in the map *parse-options*, which is rebindable.
 
-     :keep-whitespace
-       If true, whitespace-only text nodes are kept, othewise they
-       are discarded.
+     :whitespace
+       Three predefined values are supported:
+        :keep - all text nodes are kept, unchanged.
+        :skip-blank - whitespace-only text nodes are discarded. This
+                      is the default.
+        :trim - whitespace-only text nodes are discarded, and other
+                text nodes have whitespace trimmed from both ends.
+       The value can also be a function of one argument. It will be
+       called with the string value of each text node, and that node
+       will replaced with the return value. Returning nil will cause
+       the node to be discarded.
 
      :comments
      :cdata
@@ -534,6 +552,9 @@
 
         ;; Optionally discard whitespace-only nodes
         e (if keep-whitespace e (skip-whitespace e))
+        e (if (not= :keep whitespace)
+            (normalize-text e whitespace)
+            e)
 
         ]
 

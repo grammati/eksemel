@@ -175,7 +175,7 @@
                   (testing "original prefix is retained"
                     (is (= "a" (->> a keys (remove keyword?) first meta :prefix)))))))))))))
 
-(deftest parsing-miscellany
+(deftest parsing-namespaces
   (testing "Multiple prefixes for same namespace"
     (let [xml "<foo xmlns:a='my-ns' xmlns:b='my-ns'><a:bar/><b:bar/></foo>"
           root (first (xml/parse xml))
@@ -198,3 +198,28 @@
       (let [root (first (xml/parse xml {:xmlns-aware false}))
             a (-> root xml/content first xml/attrs)]
         (is (= 2 (count a)))))))
+
+(deftest whitespace
+  (let [xml (str "<foo>\n"
+                   "  <bar>\n"
+                   "    Hello World!\n"
+                   "  </bar>\n"
+                   "</foo>\n")]
+    (testing "parsing with :whitespace option set to :keep"
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace :keep})))]
+        (is (= 3 (count t)))
+        (is (= "\n  " (nth t 0)))
+        (is (= "\n    Hello World!\n  " (nth t 1)))
+        (is (= "\n" (nth t 2)))))
+    (testing "parsing with :whitespace option set to :trim"
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace :trim})))]
+        (is (= 1 (count t)))
+        (is (= "Hello World!" (first t)))))
+    (testing "parsing with :whitespace option not explicitly"
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml)))]
+        (is (= 1 (count t)))
+        (is (= "\n    Hello World!\n  " (first t)))))
+    (testing "parsing with :whitespace option set :skip-blank gives default behavior"
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace :skip-blank})))]
+        (is (= 1 (count t)))
+        (is (= "\n    Hello World!\n  " (first t)))))))
