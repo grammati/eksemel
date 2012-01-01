@@ -215,11 +215,16 @@
       (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace :trim})))]
         (is (= 1 (count t)))
         (is (= "Hello World!" (first t)))))
-    (testing "parsing with :whitespace option not explicitly"
+    (testing "parsing with :whitespace option not explicitly set"
       (let [t (filter string? (xml/flatten-nodes (xml/parse xml)))]
         (is (= 1 (count t)))
         (is (= "\n    Hello World!\n  " (first t)))))
-    (testing "parsing with :whitespace option set :skip-blank gives default behavior"
+    (testing "parsing with :whitespace option set to :skip-blank gives default behavior"
       (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace :skip-blank})))]
         (is (= 1 (count t)))
-        (is (= "\n    Hello World!\n  " (first t)))))))
+        (is (= "\n    Hello World!\n  " (first t)))))
+    (testing "parsing with :whitespace set to a function calls it for each text node"
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace #(-> % string/trim string/upper)})))]
+        (is (= 3 (count t)))))
+    ))
+

@@ -27,12 +27,12 @@
 ;; Records for XML node types
 
 (defrecord Element [tag attrs content uri]
-  
+
   ElementAccessor
   (tag [this] tag)
   (attrs [this] attrs)
   (content [this] content)
-  
+
   XmlNamespaced
   (uri [this] uri)
   (prefix [this]
@@ -118,8 +118,8 @@
                 (keyword q-name)
                 (let [[prefix _] (string/split q-name #":" 2)]
                   (with-meta
-                    [(keyword (.getLocalName attrs i)) uri]
-                    {:prefix prefix})))))
+                    [(keyword (.getLocalName attrs i)) uri] ;memoize?
+                    {:prefix prefix})))))                   ;memoize?
           (fn [^Attributes attrs ^Long i]
             (keyword (.getQName attrs i))))]
     (into {} (for [^Long i (range (.getLength attrs))]
@@ -143,6 +143,7 @@
     [:processing-instruction target data]
     [:comment text]
   "
+  ;; TODO - use records rather than vectors? (faster to construct)
   [f & [opts]]
   (let [{:keys [xmlns-aware line-numbers]} opts
         locator (atom nil)
@@ -157,13 +158,13 @@
             #(f (with-line-numbers %))
             f)
         nil-if-empty (fn [^String s] (if (pos? (.length s)) s))]
-    
+
     (proxy [DefaultHandler2] []
 
       ;; For getting line & column numbers
       (setDocumentLocator [^Locator loc]
         (reset! locator loc))
-      
+
       ;; Elements
       (startElement [uri local-name q-name attrs]
         (f [:start-element (nil-if-empty uri) local-name q-name (attrs->map attrs xmlns-aware)]))
@@ -173,12 +174,12 @@
       ;; Text
       (characters [^chars ch ^long start ^long length]
         (f [:text (String. ch start length)]))
-    
+
       ;; As far as I can tell, ignorableWhitespace never gets called.
       ;; does anyone ever need this?
       #_(ignorableWhitespace [^chars ch ^long start ^long length]
           (f [:whitespace (String. ch start length)]))
-    
+
       ;; Keep track of which text came from a CDATA section
       (startCDATA []
         (f [:start-cdata]))
@@ -197,8 +198,8 @@
 
       ;; Comments
       (comment [^chars ch ^long start ^long length]
-               (f [:comment (String. ch start length)]))
-    
+        (f [:comment (String. ch start length)]))
+
       )))
 
 
@@ -215,7 +216,7 @@
 
   InputSource
   (as-input-source [this] this)
-  
+
   Object
   (as-input-source [o]
     (InputSource. (io/reader o))))
@@ -230,16 +231,16 @@
         parser          (XMLReaderFactory/createXMLReader) ;TODO - make this pluggable
         [put event-seq] (pipe/pipe {:capacity 4096})
         handler         (sax-handler put opts)]
-    
+
     (.setContentHandler parser handler)
-    
+
     (when xmlns-aware
       ;; Set the "lexical-handler" property in order to get
       ;; start-prefix-mapping & end-prefix-mapping events.
       (.setProperty parser
                     "http://xml.org/sax/properties/lexical-handler"
                     handler))
-    
+
     ;; Setting this to true means that undeclared namespace-prefixes
     ;; will be an error.
     (.setFeature parser
@@ -326,7 +327,7 @@
             (if prefix
               (assoc md-map :prefix prefix)
               md-map)))
-        
+
         make-element
         (if xmlns-aware
           (fn [[_ uri local-name q-name attrs] content md-map]
@@ -343,15 +344,15 @@
                       attrs
                       content
                       nil)))
-        
+
         make-nodes
         (fn make-nodes [events md-map]
           (loop [nodes []
                  [[type data :as evt] & events] events
                  md-stack (list md-map)]
-            
+
             (case type
-              
+
               :start-prefix-mapping
               (let [[_ prefix uri] evt
                     md-map (assoc-in (peek md-stack) [:xmlns prefix] uri)]
@@ -360,7 +361,7 @@
               :end-prefix-mapping
               ;; TODO - sanity check? make sure the prefix is in the md-map?
               (recur nodes events (pop md-stack))
-              
+
               :start-element
               (let [md-map (peek md-stack)
                     [children events] (make-nodes events md-map)
@@ -395,7 +396,7 @@
 
               (:end-element nil)
               [nodes events]
-              
+
               )))]
     (make-nodes events nil)))
 
@@ -482,7 +483,7 @@
     * xmlns declarations:
        t: stored in metadata as :xmlns-decls
        f: present in the attrs map, like regular attributes
-        
+
     * The ns field of Elements:
        t: the namespace URI (or nil, for the default namespace)
        f: always nil
@@ -504,9 +505,9 @@
        f: ???
 
    "
-  
+
   [source & [opts]]
-  
+
   ;; This works by producing a seq of SAX-events, and then running it
   ;; through a series of transformations. This should allow quite a
   ;; bit flexibility in deciding exactly which transformations to
@@ -515,7 +516,7 @@
   ;; be produced by the parser and added to the seq, but then
   ;; ignored. This inefficiency should be ameliorated somewhat by the
   ;; fact that those types of nodes are relatively rare in XML.
-  
+
   (let [;; Use defaults for options unless overridden.
         opts (merge *parse-options* opts)
         {:keys [xmlns-aware
@@ -538,7 +539,7 @@
                          (when-not xmlns-aware [:start-prefix-mapping :end-prefix-mapping])
                          ])]
             (if ignored-types (apply ignore e ignored-types) e))
-        
+
         ;; Since the SAX parser runs in another thread, parsing errors
         ;; are caught and put into the event-seq as [:error
         ;; <exception>].  This transformation will re-throw them.
@@ -586,7 +587,7 @@
   (prefix-for [this] "Returns the prefix to use for "))
 
 (extend-protocol XMLPrefix
-  
+
   Element
   (prefix-for [elt]
     (if-let [uri (uri elt)]
@@ -700,7 +701,7 @@
 
   nil
   (emit-xml [_ _])
-  
+
   Element
   (emit-xml [this out]
     (emit-element this out))
@@ -721,7 +722,7 @@
   (emit-xml [s ^Writer out]
     (doseq [o s]
       (emit-xml o out)))
-  
+
   String
   (emit-xml [s ^Writer out]
     (.write out (xml-escape s)))
@@ -730,7 +731,7 @@
   #_Object
   #_(emit-xml [o ^Writer out]
     (emit-xml (str o) out))
-  
+
   )
 
 
