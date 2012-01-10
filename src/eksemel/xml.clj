@@ -285,23 +285,26 @@
          (mapcat merge-if-text))))
 
 
-(defn skip-whitespace
-  "Filters out whitespace-only text events."
-  [events]
-  (remove (fn [[type s :as evt]]
-            (and (= type :text)
-                 (string/blank? s)))
-          events))
-
 (defn normalize-text
-  ""
+  "Transform text events. See parse."
   [events option]
   (if (= option :keep)
     events ; fast-path
-    (let [option (if (nil? option) :skip-blank option)
-          f (case option
-              :skip-blank #(if-not (string/blank? %) %)
-              :trim  string/trim)])))
+    (let [option (or option :skip-blank)
+          f (if (keyword? option)
+              (case option
+                :skip-blank #(if-not (string/blank? %) %)
+                :trim  string/trim)
+              option)]
+      (remove nil?
+              (map (fn [[type s :as e]]
+                     (if (= :text type)
+                       (let [s (f s)]
+                         (if (or (nil? s) (and (string? s) (zero? (.length s))))
+                           nil
+                           [:text s]))
+                       e))
+                   events)))))
 
 (defn ignore
   "Filters out events of the given types."
@@ -521,7 +524,7 @@
         opts (merge *parse-options* opts)
         {:keys [xmlns-aware
                 comments cdata processing-instructions
-                keep-whitespace]} opts
+                whitespace]} opts
 
         ;; First, run the SAX parser to produce the full sequence of
         ;; events. Give it the nice short name "e", since it will be
@@ -551,8 +554,7 @@
         ;; adjacent text nodes merged into one.
         e (merge-adjacent-text e)
 
-        ;; Optionally discard whitespace-only nodes
-        e (if keep-whitespace e (skip-whitespace e))
+        ;; Optionally discard or trim whitespace in text nodes
         e (if (not= :keep whitespace)
             (normalize-text e whitespace)
             e)

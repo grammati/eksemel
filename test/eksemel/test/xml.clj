@@ -224,7 +224,8 @@
         (is (= 1 (count t)))
         (is (= "\n    Hello World!\n  " (first t)))))
     (testing "parsing with :whitespace set to a function calls it for each text node"
-      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace #(-> % string/trim string/upper)})))]
-        (is (= 3 (count t)))))
+      (let [t (filter string? (xml/flatten-nodes (xml/parse xml {:whitespace #(-> % string/trim string/upper-case)})))]
+        (is (= 1 (count t)))
+        (is (= "HELLO WORLD!" (first t)))))
     ))
 
