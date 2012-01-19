@@ -109,6 +109,8 @@
 
 (defn attrs->map
   [^Attributes attrs xmlns-aware]
+  ;; Note: the Attributes instance is only valid during the SAX callback, so
+  ;; conversion to a map cannot be deferred.
   (let [attr-key
         (if xmlns-aware
           (fn [^Attributes attrs ^Long i]
@@ -155,7 +157,7 @@
                                  :col  (.getColumnNumber loc)})
                               evt))
         f (if line-numbers
-            #(f (with-line-numbers %))
+            (comp f with-line-numbers)
             f)
         nil-if-empty (fn [^String s] (if (pos? (.length s)) s))]
 
@@ -326,14 +328,14 @@
         ;; Memoize the metadata maps
         element-metadata
         (memoize
-          (fn [md-map prefix]
+          (fn [state prefix]
             (if prefix
-              (assoc md-map :prefix prefix)
-              md-map)))
+              (assoc state :prefix prefix)
+              state)))
 
         make-element
         (if xmlns-aware
-          (fn [[_ uri local-name q-name attrs] content md-map]
+          (fn [[_ uri local-name q-name attrs] content state]
             (let [[prefix tag] (string/split q-name #":" 2)
                   prefix (if tag prefix nil)]
               (with-meta
@@ -341,7 +343,7 @@
                           attrs
                           content
                           uri)
-                (element-metadata md-map prefix))))
+                (element-metadata state prefix))))
           (fn [[_ _ _ q-name attrs] content _]
             (Element. (keyword q-name)
                       attrs
@@ -349,39 +351,45 @@
                       nil)))
 
         make-nodes
-        (fn make-nodes [events md-map]
+        (fn make-nodes [events current-state]
           (loop [nodes []
                  [[type data :as evt] & events] events
-                 md-stack (list md-map)]
+                 state (list current-state)]
 
             (case type
 
               :start-prefix-mapping
               (let [[_ prefix uri] evt
-                    md-map (assoc-in (peek md-stack) [:xmlns prefix] uri)]
-                (recur nodes events (conj md-stack md-map)))
+                    new-state (-> (peek state)
+                                  (assoc-in [:xmlns-decls prefix] uri)
+                                  (assoc-in [:xmlns prefix] uri))]
+                (recur nodes events (conj state new-state)))
 
               :end-prefix-mapping
-              ;; TODO - sanity check? make sure the prefix is in the md-map?
-              (recur nodes events (pop md-stack))
+              ;; TODO - sanity check? make sure the prefix is in the current-state?
+              (recur nodes events (pop state))
 
               :start-element
-              (let [md-map (peek md-stack)
-                    [children events] (make-nodes events md-map)
-                    elt (make-element evt children md-map)]
+              #_(let [[elt events] (make-element evt events (peek state))]
                 (recur (conj nodes elt)
                        events
-                       md-stack))
+                       state))
+              (let [current-state (peek state)
+                    [children events] (make-nodes events (dissoc current-state :xmlns-decls))
+                    elt (make-element evt children current-state)]
+                (recur (conj nodes elt)
+                       events
+                       state))
 
               :text
               (recur (conj nodes data)
                      events
-                     md-stack)
+                     state)
 
               :comment
               (recur (conj nodes (Comment. data))
                      events
-                     md-stack)
+                     state)
 
               :start-cdata
               (let [[text-nodes [end-cdata & events]]
@@ -389,13 +397,13 @@
                 (assert (= (end-cdata 0) :end-cdata) "Expected :end-cdata event.")
                 (recur (conj nodes (CData. (apply str (map second text-nodes))))
                        events
-                       md-stack))
+                       state))
 
               :processing-instruction
               (let [[_ target text] evt]
                 (recur (conj nodes (PI. target text))
                        events
-                       md-stack))
+                       state))
 
               (:end-element nil)
               [nodes events]
@@ -445,6 +453,7 @@
 
    The opts parameter is an optional map of options. The defaults for
    all options are in the map *parse-options*, which is rebindable.
+   The following options are supported:
 
      :whitespace
        Three predefined values are supported:
@@ -455,13 +464,14 @@
                 text nodes have whitespace trimmed from both ends.
        The value can also be a function of one argument. It will be
        called with the string value of each text node, and that node
-       will replaced with the return value. Returning nil will cause
-       the node to be discarded.
+       will be replaced with the return value. Returning nil will
+       cause the node to be discarded.
 
      :comments
      :cdata
      :processing-instructions
-       If false, nodes of the corresponding type are discarded.
+       If false, nodes of the corresponding type are discarded by the
+       parser.
 
      :line-numbers
        If true, the parser will put line-numbers and column-numbers
@@ -474,7 +484,8 @@
 
    When set to false, XML namespaces are more-or-less ignored, and
    tags and attributes are stored as they appear textually in the
-   XML, including prefixes.
+   XML, including prefixes. This is the behvior of clojure.xml (as
+   of clojure version 1.3).
 
    When set to true, namespace URIs are stored as part of Elements'
    values, and prefix information is stored in metadata.
@@ -518,7 +529,7 @@
   ;; example, events for comments, processing-instructions, etc. may
   ;; be produced by the parser and added to the seq, but then
   ;; ignored. This inefficiency should be ameliorated somewhat by the
-  ;; fact that those types of nodes are relatively rare in XML.
+  ;; fact that those types of nodes are relatively rare in most XML.
 
   (let [;; Use defaults for options unless overridden.
         opts (merge *parse-options* opts)
@@ -565,6 +576,9 @@
     ;; nodes. This actually returns all the top-level nodes, which
     ;; should consist of exactly one Element, as well as any number of
     ;; Comments and PIs preceeding and/or following the Element.
+    ;; TODO - wrap the result in a Document object, which contains a
+    ;;        record of the parsing options in effect at parse-time,
+    ;;        the source of the XML, etc.?
     (make-tree e opts)))
 
 
@@ -648,12 +662,20 @@
   [elt ^Writer out]
   (let [tag (tag elt)
         attrs (attrs elt)
+        decls (:xmlns-decls (meta elt))
         content (content elt)
         prefix (prefix-for elt)
         tagname (str prefix (if prefix \:) (name tag))]
     (doto out
       (.write "<")
       (.write tagname))
+    (doseq [[prefix ns] decls]
+        (doto out
+          (.write " xmlns:")
+          (.write prefix)
+          (.write "='")
+          (.write (xml-escape-attr (str ns)))
+          (.write "'")))
     (doseq [[k v] attrs]
       (when-not (nil? v)
         (.write out " ")
@@ -735,6 +757,7 @@
     (emit-xml (str o) out))
 
   )
+
 
 
 (defn emit

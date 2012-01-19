@@ -180,7 +180,9 @@
     (let [xml "<foo xmlns:a='my-ns' xmlns:b='my-ns'><a:bar/><b:bar/></foo>"
           root (first (xml/parse xml))
           [c1 c2] (xml/content root)]
-      (is (= {:xmlns {"a" "my-ns" "b" "my-ns"}} (meta root)))
+      (is (= {"a" "my-ns" "b" "my-ns"} (-> root meta :xmlns)))
+      (is (= {"a" "my-ns" "b" "my-ns"} (-> root meta :xmlns-decls)))
+      (is (nil? (-> c1 meta :xmlns-decls)))
       ;; Important: elements are equal, even though textually
       ;; different in the original XML.
       (is (= c1 c2))
@@ -228,4 +230,32 @@
         (is (= 1 (count t)))
         (is (= "HELLO WORLD!" (first t)))))
     ))
+
+(defn- meta= [a b]
+  (and (= a b)
+       (= (map meta (xml/flatten-nodes a))
+          (map meta (xml/flatten-nodes b)))))
+
+(deftest roundtrip
+  (testing "Emitting and then re-parsing XML is idempotent"
+    (letfn [(t [xml-in]
+              (let [elts-1 (xml/parse xml-in)
+                    xml-out (xml/emit elts-1)
+                    elts-2 (xml/parse xml-out)]
+                (is (= xml-in xml-out))
+                #_(is (meta= elts-1 elts-2))))
+            (tt [xml-in]
+              (binding [xml/*parse-options* xml/default-parse-options]
+                (t xml-in))
+              (binding [xml/*parse-options* xml/old-parse-options]
+                (t xml-in)))]
+      (t "<foo/>")
+      (t "<foo xmlns:a='aaa'/>")
+      )))
+
+(deftest trolling-the-emitter
+  (testing "Trying to trick emit into writing invalid XML"
+    (testing "No namespace prefixes - emit should generate them"
+      (let [e (xml/element :foo nil nil "http://example.com/")]
+        (is (= e (xml/parse (xml/emit e))))))))
 
