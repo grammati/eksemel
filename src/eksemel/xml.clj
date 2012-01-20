@@ -4,12 +4,14 @@
   eksemel.xml
   (:require (clojure [string :as  string])
             (clojure.java [io :as io])
+            (clojure [pprint :as pprint])
             (yoodls [pipe :as pipe]))
   (:import [java.io Writer Reader StringReader]
            [org.xml.sax Attributes InputSource Locator]
            [org.xml.sax.ext DefaultHandler2]
            [org.xml.sax.helpers XMLReaderFactory]))
 
+(set! *warn-on-reflection* true)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Protocols
@@ -36,8 +38,7 @@
   XmlNamespaced
   (uri [this] uri)
   (prefix [this]
-    (when-let [md (meta this)]
-      (get-in md [:xmlns uri]))))
+    (:prefix (meta this))))
 
 (defrecord Comment [^String text])
 
@@ -56,7 +57,7 @@
 (defn element?
   "Returns true if the given object is an element."
   [e]
-  (instance? Element e))
+  (satisfies? ElementAccessor e))
 
 (defn comment? [c] (instance? Comment c))
 (defn processing-instruction? [pi] (instance? PI pi))
@@ -104,7 +105,7 @@
 ;; Parsing XML
 
 (defn- parse-error [& messages]
-  (throw (IllegalArgumentException. (apply str messages))))
+  (throw (IllegalArgumentException. ^String (apply str messages))))
 
 
 (defn attrs->map
@@ -301,7 +302,7 @@
       (remove nil?
               (map (fn [[type s :as e]]
                      (if (= :text type)
-                       (let [s (f s)]
+                       (let [^String s (f s)]
                          (if (or (nil? s) (and (string? s) (zero? (.length s))))
                            nil
                            [:text s]))
@@ -370,10 +371,6 @@
               (recur nodes events (pop state))
 
               :start-element
-              #_(let [[elt events] (make-element evt events (peek state))]
-                (recur (conj nodes elt)
-                       events
-                       state))
               (let [current-state (peek state)
                     [children events] (make-nodes events (dissoc current-state :xmlns-decls))
                     elt (make-element evt children current-state)]
@@ -672,7 +669,7 @@
     (doseq [[prefix ns] decls]
         (doto out
           (.write " xmlns:")
-          (.write prefix)
+          (.write (name prefix))
           (.write "='")
           (.write (xml-escape-attr (str ns)))
           (.write "'")))
@@ -692,23 +689,25 @@
           (.write ">"))))))
 
 (defn emit-comment [^Comment c ^Writer out]
-  (when (.contains (.text c) "--")
-    (throw (IllegalArgumentException. "Illegal double-dash, \"--\", in comment.")))
-  (doto out
-    (.write "<!--")
-    (.write (.text c))
-    (.write "-->")))
+  (let [t (str (.text c))]
+    (when (.contains t "--")
+      (throw (IllegalArgumentException. "Illegal double-dash, \"--\", in comment.")))
+    (doto out
+      (.write "<!--")
+      (.write t)
+      (.write "-->"))))
 
 (defn emit-cdata [^CData cd ^Writer out]
-  (when (.contains (.text cd) "]]>")
-    (throw (IllegalArgumentException. "Illegal end sequence, \"]]>\", in CDATA text.")))
-  (doto out
-    (.write "<![CDATA[")
-    (.write (.text cd))
-    (.write "]]>")))
+  (let [t (str (.text cd))]
+    (when (.contains t "]]>")
+      (throw (IllegalArgumentException. "Illegal end sequence, \"]]>\", in CDATA text.")))
+    (doto out
+      (.write "<![CDATA[")
+      (.write t)
+      (.write "]]>"))))
 
 (defn emit-pi [^PI pi ^Writer out]
-  (let [{:keys [target text]} pi]
+  (let [{:keys [^String target ^String text]} pi]
     ;; TODO - validate target: http://www.w3.org/TR/REC-xml/#sec-pi
     (when (.contains text "?>")
       (throw (IllegalArgumentException. "Illegal end sequence, \"?>\", in processing instruction.")))
@@ -778,3 +777,23 @@
      (binding [*emitter-state* (atom nil)]
        (emit-xml nodes to))))
 
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Misc
+
+(defn pprint-xml
+  "This is actually just pretty-print-with-metadata, but is here
+  because it's very useful for seeiing the structure of parsed XML,
+  including namespace info."
+  [obj]
+  (let [orig-dispatch pprint/*print-pprint-dispatch*]
+    (pprint/with-pprint-dispatch 
+      (fn [o]
+        (when (meta o)
+          (print "^")
+          (orig-dispatch (meta o))
+          (pprint/pprint-newline :fill)
+          (print " "))
+        (orig-dispatch o))
+      (pprint/pprint obj))))

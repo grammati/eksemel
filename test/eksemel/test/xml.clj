@@ -1,10 +1,7 @@
 (ns eksemel.test.xml
-  (:require (eksemel
-             [xml :as xml])
-            (clojure
-             [string :as string]))
-  (:use clojure.test)
-  (:import (org.xml.sax SAXParseException)))
+  (:require (eksemel [xml :as xml])
+            (clojure [string :as string]))
+  (:use clojure.test))
 
 
 (defn xml-str=
