@@ -1,4 +1,6 @@
-(ns eksemel.dom
+(ns
+  ^{:doc "Extend XML protocols to org.w3c.dom classes."}
+  eksemel.dom
   (:require (eksemel [xml :as xml]))
   (:import (org.w3c.dom Document Element)))
 

@@ -1,5 +1,5 @@
 (ns
-    ^{:doc "XML"
+    ^{:doc "The eksemel XML library."
       :author "Chris Perkins"}
   eksemel.xml
   (:require (clojure [string :as  string])
@@ -226,7 +226,7 @@
 
 
 (defn sax-seq
-  "Given a source of XML, returns a sequence of events, in the form of
+  "Given a source of XML, returns a sequence of events in the form of
    vectors of [type data ...]. See sax-handler for details."
   [in & [opts]]
   (let [{:keys [xmlns-aware]} opts
